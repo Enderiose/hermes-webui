@@ -33,12 +33,6 @@ function normalizePanelView(value: unknown): AppPanelView {
 }
 
 const DISMISSED_ACCESS_FAILURE_KEY = 'hermes:app-access-failure-dismissed-at'
-const APP_ACCESS_PURCHASE_URL = 'https://ekkostudio.xyz/pricing/'
-const PURCHASE_REQUIRED_FAILURE_CODES = new Set([
-  'cloud_subscription_required',
-  'paid_account_required',
-  'app_access_expired',
-])
 const DEFAULT_MOBILE_RELEASE: StudioMobileRelease = {
   version: '1.0.0',
   channels: {
@@ -98,7 +92,6 @@ const APP_RELAY_ROUTE_OPTIONS = [
 const androidVersionLabel = computed(() => formatMobileVersion(mobileRelease.value.channels.androidApk.version))
 const googlePlayVersionLabel = computed(() => formatMobileVersion(mobileRelease.value.channels.googlePlay.version))
 const iosVersionLabel = computed(() => formatMobileVersion(mobileRelease.value.channels.apple.version))
-const appPurchaseEnabled = computed(() => appAccessMode.value === 'paid')
 const androidDownloadUrl = computed(() => {
   const channel = mobileRelease.value.channels.androidApk
   const selectedUrl = downloadSource.value === 'cloudflare' ? channel.cloudflareUrl : channel.githubUrl
@@ -185,14 +178,6 @@ const accessFailureTime = computed(() => {
     dateStyle: 'medium',
     timeStyle: 'medium',
   }).format(new Date(occurredAt))
-})
-const accessFailureRequiresPurchase = computed(() => {
-  const failure = accessFailure.value
-  if (!failure) return false
-  if (PURCHASE_REQUIRED_FAILURE_CODES.has(failure.code)) return true
-  return failure.plan === 'paid'
-    && failure.code === 'app_entitlement_expired'
-    && failure.tokenTtlSeconds === 0
 })
 
 const columns = computed<DataTableColumns<AppConnection>>(() => [
@@ -644,18 +629,6 @@ onUnmounted(() => {
         </span>
         <span>{{ t('connections.app.accessFailureTime', { time: accessFailureTime }) }}</span>
       </div>
-      <div v-if="accessFailureRequiresPurchase" class="app-access-failure__actions">
-        <NButton
-          tag="a"
-          :href="APP_ACCESS_PURCHASE_URL"
-          target="_blank"
-          rel="noopener noreferrer"
-          size="small"
-          type="primary"
-        >
-          {{ t('connections.app.purchaseAccess') }}
-        </NButton>
-      </div>
     </NAlert>
 
     <template v-if="panelView === 'list'">
@@ -711,19 +684,7 @@ onUnmounted(() => {
                 <h3>{{ t('connections.app.downloadTitle') }}</h3>
               </div>
             </div>
-            <p>{{ t(appPurchaseEnabled ? 'connections.app.downloadPaidDescription' : 'connections.app.downloadDescription') }}</p>
-            <NButton
-              v-if="appPurchaseEnabled"
-              class="app-download-purchase"
-              tag="a"
-              :href="APP_ACCESS_PURCHASE_URL"
-              target="_blank"
-              rel="noopener noreferrer"
-              size="small"
-              type="primary"
-            >
-              {{ t('connections.app.purchaseAccess') }}
-            </NButton>
+            <p>{{ t('connections.app.downloadDescription') }}</p>
             <div class="app-download-meta">
               <span>APK {{ androidVersionLabel }}</span>
               <span>Google Play {{ googlePlayVersionLabel }}</span>
