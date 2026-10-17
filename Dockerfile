@@ -67,11 +67,13 @@ RUN set -eux; \
 
 # --- 2. Playwright + cairosvg（二维码登录中继 / SVG→PNG 栅格化）-------------
 # 一对一起装：cairosvg 一缺，新厂牌 logo 会静默补不上（不报错、banner 少一个）。
-# venv 里没有 pip，必须用 uv。
+# venv 里没有 pip，所以用 uv；base image（nousresearch/hermes-agent）**不带 uv**，先装。
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/.playwright
-RUN uv pip install --python /opt/hermes/.venv/bin/python \
-      playwright==1.63.0 \
-      cairosvg==2.9.1 \
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh \
+    && uv --version \
+    && uv pip install --python /opt/hermes/.venv/bin/python \
+         playwright==1.63.0 \
+         cairosvg==2.9.1 \
     && /opt/hermes/.venv/bin/python -m playwright install --with-deps chromium
 
 # --- 3. 企微插件补丁（改的是 base image 里的 wecom 插件，源码不在本仓库）---
