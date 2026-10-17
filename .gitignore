@@ -58,3 +58,6 @@ packages/client/src/**/*.js
 # Local npm release tarballs
 /release/npm/
 /release/tos/
+
+# build 脚本产出的退出码文件
+build.exit

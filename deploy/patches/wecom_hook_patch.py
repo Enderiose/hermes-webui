@@ -13,6 +13,15 @@ Idempotent: prints "already patched" and exits 0 when the marker is present.
 Then restart the gateway (SIGTERM; PID 1 revives it in ~10 s) — the module is imported at
 startup, so the route is not live until then.
 
+VERSION NOTE (0.22.x)
+---------------------
+Targets the 0.22.x adapter (`nousresearch/hermes-agent:latest`, rewritten to a ~315-line
+`WecomCallbackAdapter`). Only the `__init__` anchor changed vs. the 0.21.x patch: the class now
+uses PEP-585 lowercase generics (`dict[str, str]`, not `Dict[str, str]`). The imports / route /
+`_handle_health` anchors and the whole handler body are unchanged -- `Dict`/`List`/`Any` are still
+imported from `typing` upstream, and `_MAX_BODY` / `_message_queue` / `build_source` / `send`
+all still exist with the same shapes.
+
 WHAT IT ADDS (all inside class WecomCallbackAdapter)
 ----------------------------------------------------
 * `POST|GET /hook` (path from `platforms.wecom_callback.extra.hook_path`, default `/hook`)
@@ -50,7 +59,7 @@ IMPORTS_ANCHOR = "import asyncio\nimport logging\nimport socket as _socket\nimpo
 
 IMPORTS_ADD = "import asyncio\nimport hmac\nimport json\nimport logging\nimport os\nimport socket as _socket\nimport time\n"
 
-INIT_ANCHOR = "        self._user_app_map: Dict[str, str] = {}\n"
+INIT_ANCHOR = "        self._user_app_map: dict[str, str] = {}\n"
 
 INIT_ADD = """        # [patch] inbound webhook state (see /opt/data/patch/wecom_hook_patch.py)
         self._hook_path = str(extra.get("hook_path") or "/hook")

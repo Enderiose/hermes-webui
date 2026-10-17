@@ -1,4 +1,4 @@
-"""Unit test for the wecom_callback thinking-notice patch.
+"""Unit test for the wecom_callback thinking-notice patch (0.22.x variant).
 
 Run after applying /opt/data/patch/wecom_typing_notice_patch.py (and after any redeploy):
 
@@ -6,6 +6,9 @@ Run after applying /opt/data/patch/wecom_typing_notice_patch.py (and after any r
 
 Exit 0 + ALL_PASS means: silent until the threshold, exactly one notice per turn, state reset
 by both send() and stop_typing(), typing_status_text override honoured, `<=0` disables.
+
+NOTE (0.22.x): the original `send()` body is renamed `_send_impl(...)` (upstream 0.22.x already
+owns the name `_send_text`), so the fake below patches `_send_impl`, not `_send_text`.
 """
 import asyncio
 import sys
@@ -26,11 +29,11 @@ def make(extra=None, typing_status_text=None):
     a._typing_notes = {}
     a._typing_notice_tasks = set()
 
-    async def _fake_send_text(chat_id, content, reply_to=None, metadata=None):
+    async def _fake_send_impl(chat_id, content, reply_to=None, metadata=None):
         SENT.append((chat_id, content))
         return types.SimpleNamespace(success=True, message_id="fake")
 
-    a._send_text = _fake_send_text
+    a._send_impl = _fake_send_impl
     return a
 
 

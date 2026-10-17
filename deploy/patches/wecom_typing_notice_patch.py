@@ -14,14 +14,25 @@ Idempotent: prints "already patched" and exits 0 when the marker is present.
 Then restart the gateway (SIGTERM; PID 1 revives it in ~10 s) — the module is imported at
 startup, so the patch is not live until then.
 
+VERSION NOTE (0.22.x)
+---------------------
+This variant targets the 0.22.x adapter (`nousresearch/hermes-agent:latest`, the class was
+rewritten to a compact ~315-line `WecomCallbackAdapter`). vs. the 0.21.x patch:
+
+* `__init__`/`send` anchors use PEP-585 lowercase generics (`dict[...]`, not `Dict[...]`).
+* 0.22.x already defines an internal `_send_text(app, chat_id, content)` helper, so the
+  original `send()` body is renamed `_send_impl(...)` here instead of `_send_text(...)`.
+  The notice therefore calls `_send_impl()` — same intent (never re-enters the wrapper),
+  no name clash with upstream.
+
 WHAT IT ADDS (all inside class WecomCallbackAdapter)
 ---------------------------------------------------
 * `send_typing()` — base ticks this every 2 s per turn; fires ONE background send once the
   turn passes `platforms.wecom_callback.extra.typing_notice_after` seconds (default 20, <=0
   disables). Text override: platform `typing_status_text`.
 * `send()` — thin wrapper that clears the per-turn state, then calls the original body
-  (renamed `_send_text`). `stop_typing()` clears it too ⇒ at most one notice per turn.
-* `_send_text()` — the untouched original `send()` body (the notice uses this, so the notice
+  (renamed `_send_impl`). `stop_typing()` clears it too ⇒ at most one notice per turn.
+* `_send_impl()` — the untouched original `send()` body (the notice uses this, so the notice
   never re-enters the wrapper / never resets its own state).
 """
 
@@ -36,16 +47,16 @@ TARGET = pathlib.Path("/opt/hermes/plugins/platforms/wecom/callback_adapter.py")
 PATCHED_COPY = pathlib.Path("/opt/data/patch/callback_adapter.py.patched")
 MARK = "[patch] thinking notice"
 
-INIT_ANCHOR = "        self._access_tokens: Dict[str, Dict[str, Any]] = {}\n"
+INIT_ANCHOR = "        self._access_tokens: dict[str, dict[str, Any]] = {}\n"
 
 INIT_ADD = """        # [patch] thinking notice state (see /opt/data/patch/wecom_typing_notice_patch.py)
-        self._typing_notes: Dict[str, Dict[str, Any]] = {}
+        self._typing_notes: dict[str, dict[str, Any]] = {}
         self._typing_notice_tasks: set = set()
 """
 
 SEND_ANCHOR = (
     "    async def send(self, chat_id: str, content: str, reply_to: Optional[str] = None,"
-    " metadata: Optional[Dict[str, Any]] = None) -> SendResult:\n"
+    " metadata: Optional[dict[str, Any]] = None) -> SendResult:\n"
 )
 
 SEND_ADD = '''    # ── [patch] thinking notice: callback mode has no typing-status API ──────────────
@@ -63,7 +74,7 @@ SEND_ADD = '''    # ── [patch] thinking notice: callback mode has no typing-
             after = 20.0
         return after if after > 0 else 0.0
 
-    def _typing_notice_state(self) -> Dict[str, Dict[str, Any]]:
+    def _typing_notice_state(self) -> dict[str, dict[str, Any]]:
         notes = getattr(self, "_typing_notes", None)  # __new__-built adapters (tests) lack it
         if notes is None:
             notes = self._typing_notes = {}
@@ -82,7 +93,8 @@ SEND_ADD = '''    # ── [patch] thinking notice: callback mode has no typing-
         state["sent"] = True
         text = str(getattr(self.config, "typing_status_text", None) or self.TYPING_NOTICE_TEXT)
         # Background task: base bounds each send_typing() call at ~1.5s; a real POST can exceed that.
-        task = asyncio.create_task(self._send_text(key, text))
+        # _send_impl is the untouched original send() body ⇒ the notice never re-enters the wrapper.
+        task = asyncio.create_task(self._send_impl(key, text))
         tasks = getattr(self, "_typing_notice_tasks", None)
         if tasks is None:
             tasks = self._typing_notice_tasks = set()
@@ -94,10 +106,10 @@ SEND_ADD = '''    # ── [patch] thinking notice: callback mode has no typing-
         """Turn over — reset so the next turn can fire its own notice."""
         self._typing_notice_state().pop(str(chat_id), None)
 
-    async def send(self, chat_id: str, content: str, reply_to: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> SendResult:
+    async def send(self, chat_id: str, content: str, reply_to: Optional[str] = None, metadata: Optional[dict[str, Any]] = None) -> SendResult:
         """Real outbound reply: clear the per-turn notice state first, then deliver."""
         self._typing_notice_state().pop(str(chat_id), None)
-        return await self._send_text(chat_id, content, reply_to=reply_to, metadata=metadata)
+        return await self._send_impl(chat_id, content, reply_to=reply_to, metadata=metadata)
 
 '''
 
@@ -120,9 +132,9 @@ def main() -> int:
 
     shutil.copy2(TARGET, TARGET.with_suffix(".py.bak-typingmsg"))  # in-tree backup of the pristine file
     patched = text.replace(INIT_ANCHOR, INIT_ANCHOR + INIT_ADD, 1).replace(
-        SEND_ANCHOR, SEND_ADD + SEND_ANCHOR.replace("    async def send(", "    async def _send_text(", 1), 1
+        SEND_ANCHOR, SEND_ADD + SEND_ANCHOR.replace("    async def send(", "    async def _send_impl(", 1), 1
     )
-    if MARK not in patched or patched.count("async def _send_text(") != 1:
+    if MARK not in patched or patched.count("async def _send_impl(") != 1:
         print("FAIL: patch assembly did not produce the expected shape")
         return 1
 
