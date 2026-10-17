@@ -68,8 +68,16 @@ RUN set -eux; \
 # --- 2. Playwright + cairosvg（二维码登录中继 / SVG→PNG 栅格化）-------------
 # 一对一起装：cairosvg 一缺，新厂牌 logo 会静默补不上（不报错、banner 少一个）。
 # venv 里没有 pip，所以用 uv；base image（nousresearch/hermes-agent）**不带 uv**，先装。
+# 装 uv / pip / playwright 浏览器都需要出网：本部署经 NAS 代理（可用 --build-arg 覆盖）。
+# base image 不带 uv，且 astral.sh 的安装脚本在本网络会卡死 → 直接从 GitHub releases 取二进制。
+ARG BUILD_HTTP_PROXY=http://192.168.2.4:7890
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/.playwright
-RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh \
+RUN export HTTPS_PROXY="$BUILD_HTTP_PROXY" HTTP_PROXY="$BUILD_HTTP_PROXY" \
+      NO_PROXY="localhost,127.0.0.1,192.168.2.0/24,deb.debian.org" \
+    && curl -fsSL --retry 3 --connect-timeout 20 -o /tmp/uv.tar.gz \
+         https://github.com/astral-sh/uv/releases/download/0.11.6/uv-x86_64-unknown-linux-gnu.tar.gz \
+    && tar -xzf /tmp/uv.tar.gz -C /usr/local/bin --strip-components=1 \
+    && rm -f /tmp/uv.tar.gz \
     && uv --version \
     && uv pip install --python /opt/hermes/.venv/bin/python \
          playwright==1.63.0 \
