@@ -36,9 +36,15 @@ export const useProfilesStore = defineStore('profiles', () => {
     try {
       profiles.value = await profilesApi.fetchProfiles()
       const storedName = activeProfileName.value || localStorage.getItem(ACTIVE_PROFILE_STORAGE_KEY)
-      let selected = profiles.value.find(p => p.name === storedName) ?? null
+      // [local patch] Treat a stored "default" as absent: a fresh/stale client (empty or
+      // cleared localStorage, new device, reinstalled app) must follow the server's
+      // active profile instead of pinning to "default".
+      let selected = (storedName && storedName !== 'default')
+        ? profiles.value.find(p => p.name === storedName) ?? null
+        : null
       if (!selected && profiles.value.length > 0) {
-        selected = profiles.value[0]
+        // [local patch] Prefer the profile the server marks active over the first entry.
+        selected = profiles.value.find(p => p.active) || profiles.value[0]
         activeProfileName.value = selected.name
         localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, selected.name)
       }

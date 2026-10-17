@@ -259,6 +259,42 @@ function lookupContextFromDatabase(modelName: string, provider: string | null, p
   }
 }
 
+/**
+ * [local patch] Read the endpoint-declared context length memo written by
+ * /opt/data/patch/sync_model_context.py:
+ *
+ *   <hermes_home>/cache/endpoint_context_lengths.json
+ *   { normalizedBaseUrl: { at, models: { modelId: { context_length, max_completion_tokens } } } }
+ *
+ * The relay's GET /v1/models reports context_length per model, but Studio's own
+ * resolution chain only looks at config.yaml and the models.dev catalog, so a
+ * model registered only at the relay silently fell back to DEFAULT_CONTEXT_LENGTH
+ * (256000). getModelContextLength is synchronous, so read this memo instead of
+ * probing the endpoint over HTTP.
+ */
+function lookupEndpointContextLength(
+  config: any,
+  model: string,
+  provider: string | null,
+  options: ModelContextLengthOptions,
+): number | null {
+  try {
+    const baseUrl = options.baseUrl?.trim() || resolveConfiguredModelEndpoint(config, provider, model, '')
+    if (!baseUrl) return null
+    const key = baseUrl.trim().replace(/\/+$/, '')
+    const file = join(detectHermesHome(), 'cache', 'endpoint_context_lengths.json')
+    if (!existsSync(file)) return null
+    const memo = JSON.parse(readFileSync(file, 'utf8')) as Record<string, any>
+    const models = memo?.[key]?.models
+    if (!models || typeof models !== 'object') return null
+    const wanted = model.trim().toLowerCase()
+    const hit = Object.entries(models).find(([id]) => id.trim().toLowerCase() === wanted)?.[1] as any
+    return getPositiveNumber(hit?.context_length) || null
+  } catch {
+    return null
+  }
+}
+
 export function getModelContextLength(input?: string | ModelContextLengthOptions): number {
   const options: ModelContextLengthOptions = typeof input === 'string'
     ? { profile: input }
@@ -304,6 +340,12 @@ export function getModelContextLength(input?: string | ModelContextLengthOptions
   // 4. Shared local models.dev catalog
   const cached = getCachedContext(lookupModelFromCache(config, model, provider, options))
   if (cached) return cached
+
+  // 4.5 [local patch] Endpoint-declared context length (relay GET /v1/models),
+  // memoized by sync_model_context.py. Runs before the hard-coded fallback so a
+  // relay-only model reports its real window instead of 256000.
+  const endpointCtx = lookupEndpointContextLength(config, model, provider, options)
+  if (endpointCtx && endpointCtx > 0) return endpointCtx
 
   // 5. Fallback
   return fallbackContextLength(options)
