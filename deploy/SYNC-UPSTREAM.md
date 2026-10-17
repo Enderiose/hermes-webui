@@ -43,3 +43,4 @@ git push origin custom
 | 日期 | 上游 HEAD | 结果 |
 |---|---|---|
 | 2026-10-17 | `2325aa4e`（v0.7.36） | custom 快进 + 重放定制，ahead 19；本地定制层 `deploy/` 与 4 处源码改动就位 |
+| 2026-10-17 | base image `hermes-agent:latest` 0.21.2 → **0.22.0** | 企微 3 补丁适配 0.22.x；新增运行时配置 `gatewayAutoStart` + `gateway.standalone`（见 `REBUILD.md` §6）；镜像 `b02a8a1bea98` 上线，企微 8645 恢复 |

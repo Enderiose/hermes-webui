@@ -980,3 +980,61 @@ rm -f $PROF/state.db-wal $PROF/state.db-shm
 `profiles/enderiose/`（SOUL / 技能池 / cron / scripts / config / .env）这三处卷里。
 重建 = 起容器（补 8645 端口、`HERMES_PATCH_SCRIPT` 与其余环境变量）→ `apply-all.sh` →
 装 Playwright + cairosvg + 字体（+ JDK/SDK 若要出 APK）→ 按第 4 节处理 ekko 弃用 → 跑第 5 节自检清单。**
+
+---
+
+## 6. hermes-agent 0.21.2 → 0.22.0 升级要点（2026-10-17）
+
+`Dockerfile` 的 `FROM nousresearch/hermes-agent:latest` 本次重建时拉到 **v0.22.0**
+（旧容器是 v0.21.2；Docker Hub 上**没有** v0.21.2 tag，最早 v0.21.6，无法精确锁回）。
+0.22.0 重写了企微回调插件（`WecomCallbackAdapter`，530→315 行），并改成
+**multiplex（一个 host gateway 服务所有 profile）** 架构。
+
+### 6.1 企微 3 补丁（`deploy/patches/`，已适配 0.22.x）
+
+| 补丁 | 0.22.x 适配点 |
+|---|---|
+| `wecom_crypto_receiveid_patch.py` | 锚点与 0.21.2 一致，**原样可用** |
+| `wecom_hook_patch.py` | 仅 `__init__` 锚点改 PEP-585 小写泛型（`dict[str, str]`） |
+| `wecom_typing_notice_patch.py` | 锚点小写化；原 `send()` 改名 **`_send_impl`**（0.22.x 已自带 `_send_text(app, chat, content)`，避免重名） |
+
+编译期 `apply-wecom.sh` 跑 3 个补丁 + 3 个自检，全绿才 build 成功（fail-fast）。
+
+### 6.2 运行时配置（在卷里，重建不丢；新部署必须设置）
+
+0.22.x 的 gateway 自启**默认关闭**，且 named profile（`enderiose`）在 multiplex 下
+**不允许有自己的 gateway** —— 否则 `hermes gateway run` 直接拒绝启动、8645 不监听。
+
+本部署已设的两处（重建后请核对）：
+
+1. **Studio App 配置** —— `/home/agent/.hermes-web-ui/config.json`
+   （= `config.appHome/config.json`，**不是** `.ekko/config/config.json`）：
+
+   ```json
+   "gatewayAutoStart": { "enabled": true, "include": ["enderiose"] }
+   ```
+
+   - `enabled` 默认 false（源码注释："Only explicit true enables"）；不设则 bootstrap
+     只打印 `[bootstrap] profile gateways checked`，**不启动任何 gateway**。
+   - `include: ["enderiose"]` 让 autostart 只拉起 enderiose，不拉 default
+     （default 的 `platforms.wecom_callback.enabled: false`，且 standalone 下二者会冲突）。
+
+2. **enderiose profile 配置** —— `profiles/enderiose/config.yaml`：
+
+   ```yaml
+   gateway:
+     standalone: true
+   ```
+
+   这是 0.22.0 拒绝启动时**报错原文推荐的临时兼容路径**，恢复 0.21.2 的 per-profile
+   gateway 行为。长期方向是 `hermes gateway migrate --multiplex`（default 一个 host
+   gateway 服务所有 profile）。
+
+### 6.3 已知非致命日志
+
+- `gateway start completed but did not report running within timeout` —— Studio 的
+  `waitForGatewayRunning` 硬编码 15s，而 0.22.0 的 gateway 启动（含 turn machinery warm）
+  常 >15s。**gateway 实际已在运行**（`ps` + 8645 health 可证），可忽略。
+- `Failed to recover pending message ... FOREIGN KEY constraint failed`（3 条 `20261014_*`）
+  —— 旧版遗留的 spooled 消息在新 schema 下无法回放，gateway 会
+  "Held back N spooled transcript file(s)"，**不影响新消息**。
